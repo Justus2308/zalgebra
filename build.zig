@@ -16,9 +16,36 @@ pub fn build(b: *Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("zalgebra", .{
+    const zalgebra = b.addModule("zalgebra", .{
         .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+
+    const bench_mod = b.addModule("bench", .{
+        .root_source_file = b.path("example/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bench_mod.addImport("zalgebra", zalgebra);
+
+    const zbench = b.dependency("zbench", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    bench_mod.addImport("zbench", zbench.module("zbench"));
+
+    const exe = b.addExecutable(.{
+        .name = "bench",
+        .root_module = bench_mod,
+    });
+    const run_bench = b.addRunArtifact(exe);
+    if (b.args) |args| {
+        run_bench.addArgs(args);
+    }
+
+    const bench_step = b.step("bench", "Run benchmark");
+    bench_step.dependOn(&run_bench.step);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
