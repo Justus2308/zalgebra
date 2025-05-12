@@ -102,17 +102,84 @@ pub fn GenericVector(comptime dimensions: comptime_int, comptime T: type) type {
 
                 /// Construct the cross product (as vector) from two vectors.
                 pub fn cross(first_vector: Self, second_vector: Self) Self {
-                    // https://geometrian.com/resources/cross_product/
-                    const mask0 = [3]i32{ 1, 2, 0 };
-                    const mask1 = [3]i32{ 2, 0, 1 };
+                    // Concept taken from https://geometrian.com/resources/cross_product/
+                    //
+                    // What we want:
+                    //
+                    //         x = y1 * z2 - z1 * y2
+                    //         y = z1 * x2 - x1 * z2
+                    //         z = x1 * y2 - y1 * x2
+                    //
+                    // If you look at this column by column, you might notice that we are always
+                    // performing the same operation (a * b - c * d), just on different permutations
+                    // of our input vectors.
+                    //
+                    // You might imagine the first column to be shifted 'up' like this:
+                    //
+                    //               y1
+                    //             / z1
+                    //         x1-//-x1
+                    //         y1 /
+                    //         z1
+                    //
+                    // And the second column to be shifted 'down' like this:
+                    //
+                    //         x2
+                    //         y2 \
+                    //         z2-\\-z2
+                    //             \ x2
+                    //               y2
+                    //
+                    // In other words, they are swizzled by "yzx" and "zxy" respectively.
 
-                    const tmp0 = @shuffle(T, first_vector.data, undefined, mask0);
-                    const tmp1 = @shuffle(T, second_vector.data, undefined, mask1);
-                    const tmp2 = tmp0 * second_vector.data;
-                    const tmp3 = tmp0 * tmp1;
-                    const tmp4 = @shuffle(T, tmp2, undefined, mask0);
-                    const result = tmp3 - tmp4;
-                    return .{ .data = result };
+                    const first_shifted_up = first_vector.swizzle("yzx");
+                    const second_shifted_down = second_vector.swizzle("zxy");
+
+                    // Now we can multiply the first two columns to get the left 'half' of our
+                    // final cross product.
+
+                    const left_half = first_shifted_up.mul(second_shifted_down);
+
+                    // At this point we could do the same thing for the right 'half', but wait:
+                    // there is another clever observation to make.
+                    //
+                    // If you look at the last two columns, you might notice that we would have
+                    // to shift them 'down' and 'up' the same way we've already done for the first
+                    // 'half' of our cross product.
+                    //
+                    // What if, instead of shifting our two right columns around, we just multiply
+                    // our second input vector with the 'shifted-up' version of the first input
+                    // vector we've already calculated earlier?
+                    //
+                    //         y1 * x2                  z1 * y2
+                    //         z1 * y2    instead of    x1 * z2
+                    //         x1 * z2                  y1 * x2
+                    //
+                    // Multiplicant and multiplicator will still match up, even if our result is
+                    // 'out of shift'. We can fix that later with only one shift instead of two.
+
+                    const right_half_shifted = first_shifted_up.mul(second_vector);
+
+                    // Now we just have to shift the right 'half' to be properly aligned again:
+                    //
+                    //                         z1 * y2  [y]
+                    //                       / x1 * z2  [z]
+                    //         [x]  y1 * x2-//-y1 * x2  [x]
+                    //         [y]  z1 * y2 /
+                    //         [z]  x1 * z2
+                    //
+                    // To achieve this we swizzle by "yzx" once again.
+
+                    const right_half = right_half_shifted.swizzle("yzx");
+
+                    // We're almost there now. All that's left to do is to subtract the right
+                    // 'half' from the left 'half'.
+
+                    const result = left_half.sub(right_half);
+
+                    // And we're done! We've successfully computed the cross product.
+
+                    return result;
                 }
 
                 pub inline fn toVec2(self: Self) GenericVector(2, T) {
